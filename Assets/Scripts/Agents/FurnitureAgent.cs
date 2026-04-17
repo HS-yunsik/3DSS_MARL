@@ -141,20 +141,29 @@ namespace SceneSynthesis.Agents
                 sensor.AddObservation(i == _itemData.categoryIndex ? 1f : 0f);
 
             // Nearest neighbors (5 × 7)
+            // gap_x/z = signed clearance to collision boundary (negative = already overlapping).
+            // Giving this directly avoids the network having to learn
+            //   gap = |rel| - (my_halfsize + neighbor_halfsize) from raw coordinates.
             var neighbors = GetNearestNeighbors(MAX_NEIGHBORS);
             for (int i = 0; i < MAX_NEIGHBORS; i++)
             {
                 if (i < neighbors.Count && neighbors[i]._itemData != null)
                 {
-                    var n = neighbors[i];
-                    Vector3 rel = transform.InverseTransformPoint(n.transform.position);
-                    float na = n.transform.eulerAngles.y * Mathf.Deg2Rad;
-                    sensor.AddObservation(rel.x / roomW);
-                    sensor.AddObservation(rel.z / roomD);
-                    sensor.AddObservation(Mathf.Sin(na));
+                    var n      = neighbors[i];
+                    Vector3 d  = n.transform.position - transform.position;
+                    float dist = d.magnitude;
+                    Vector3 dir = dist > 0.001f ? d / dist : Vector3.zero;
+
+                    float gapX = (Mathf.Abs(d.x) - (_itemData.sizeX + n._itemData.sizeX)) / roomW;
+                    float gapZ = (Mathf.Abs(d.z) - (_itemData.sizeZ + n._itemData.sizeZ)) / roomD;
+                    float na   = n.transform.eulerAngles.y * Mathf.Deg2Rad;
+
+                    sensor.AddObservation(dir.x);                          // direction to neighbor
+                    sensor.AddObservation(dir.z);
+                    sensor.AddObservation(Mathf.Clamp(gapX, -1f, 1f));    // collision clearance X
+                    sensor.AddObservation(Mathf.Clamp(gapZ, -1f, 1f));    // collision clearance Z
+                    sensor.AddObservation(Mathf.Sin(na));                  // neighbor orientation
                     sensor.AddObservation(Mathf.Cos(na));
-                    sensor.AddObservation(n._itemData.sizeX / roomW);
-                    sensor.AddObservation(n._itemData.sizeZ / roomD);
                     sensor.AddObservation(IsSameCategory(n) ? 1f : 0f);
                 }
                 else
