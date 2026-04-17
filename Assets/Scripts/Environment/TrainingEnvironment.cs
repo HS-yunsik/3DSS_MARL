@@ -18,11 +18,12 @@ namespace SceneSynthesis.Environment
         public float sceneCompleteBonus = 2.0f;
 
         [Header("Episode Settings")]
-        public int maxStepsPerEpisode = 5000;
+        [Tooltip("Max Unity Update() frames per episode (~1000 frames ≈ 17s at 60fps)")]
+        public int maxStepsPerEpisode = 1000;
 
         SceneData _currentScene;
         int _stepCount;
-        bool _episodeEnded;
+        bool _episodeActive;
 
         void Awake()
         {
@@ -33,18 +34,27 @@ namespace SceneSynthesis.Environment
         void Start()
         {
             SceneDataLoader.LoadCatalog();
-            StartEpisode();
+
+            // Create fixed agent pool once
+            furnitureSpawner.InitializePool();
+
+            // Wire up neighbor lists (pool never changes, so set once)
+            foreach (var agent in furnitureSpawner.PooledAgents)
+                agent.SetNeighborList(furnitureSpawner.PooledAgents);
+
+            // Load first scene and assign data to pool agents
+            LoadNextScene();
+            _stepCount    = 0;
+            _episodeActive = true;
         }
 
-        // Update: 에이전트 수에 무관하게 매 프레임 1회만 종료 판정
         void Update()
         {
-            if (_episodeEnded) return;
-
+            if (!_episodeActive) return;
             _stepCount++;
 
             bool allSettled = true;
-            foreach (var agent in furnitureSpawner.SpawnedAgents)
+            foreach (var agent in furnitureSpawner.PooledAgents)
             {
                 if (!agent.IsSettled) { allSettled = false; break; }
             }
@@ -53,39 +63,35 @@ namespace SceneSynthesis.Environment
                 EndEpisode(allSettled);
         }
 
-        public void StartEpisode()
+        void LoadNextScene()
         {
             _currentScene = SceneDataLoader.LoadRandomScene(roomType);
             if (_currentScene == null)
             {
-                Debug.LogError($"[TrainingEnvironment] No scene loaded for {roomType}");
+                Debug.LogError($"[TrainingEnvironment] No scene loaded for '{roomType}'");
                 return;
             }
-
             roomBuilder.Build(_currentScene.room);
-            furnitureSpawner.SpawnFurniture(_currentScene, _currentScene.room.bounds);
-
-            foreach (var agent in furnitureSpawner.SpawnedAgents)
-                agent.SetEnvironment(this, furnitureSpawner.SpawnedAgents);
-
-            _stepCount    = 0;
-            _episodeEnded = false;
+            furnitureSpawner.AssignScene(_currentScene, _currentScene.room.bounds);
         }
 
-        // 에피소드 종료: 보너스 지급 후 새 씬으로 리셋
         void EndEpisode(bool success)
         {
-            _episodeEnded = true;
+            _episodeActive = false;
             float bonus = success ? sceneCompleteBonus : 0f;
 
-            foreach (var agent in furnitureSpawner.SpawnedAgents)
+            // Reassign data for next scene BEFORE calling EndEpisode on agents.
+            // ML-Agents calls OnEpisodeBegin() next FixedUpdate using the updated _itemData.
+            LoadNextScene();
+
+            foreach (var agent in furnitureSpawner.PooledAgents)
                 agent.EndEpisodeWithBonus(bonus);
 
-            // ML-Agents가 OnEpisodeBegin() 호출 후 새 씬 로드
-            StartEpisode();
+            _stepCount    = 0;
+            _episodeActive = true;
         }
 
-        public IReadOnlyList<FurnitureAgent> GetAllAgents() => furnitureSpawner.SpawnedAgents;
+        public IReadOnlyList<FurnitureAgent> GetAllAgents() => furnitureSpawner.PooledAgents;
         public SceneData CurrentScene => _currentScene;
     }
 }

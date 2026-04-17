@@ -9,25 +9,6 @@ using SceneSynthesis.Environment;
 
 namespace SceneSynthesis.Agents
 {
-    /// <summary>
-    /// 가구 에이전트.
-    ///
-    /// Observation (총 73차원):
-    ///   Self     (8):  norm_x, norm_z, sin_angle, cos_angle, norm_sizeX, norm_sizeZ, 0, 0
-    ///   Category (24): one-hot (최대 24 카테고리, bedroom=22+padding)
-    ///   Neighbors(35): 최근접 5개 × 7 [rel_x, rel_z, sin_a, cos_a, sizeX, sizeZ, same_super]
-    ///   Walls    (4):  ±X, ±Z 방향 raycast 거리 (정규화)
-    ///   Room     (2):  norm_room_width, norm_room_depth
-    ///
-    /// Action (Continuous 3):
-    ///   [0] move_x   [-1,1]
-    ///   [1] move_z   [-1,1]
-    ///   [2] rotate   [-1,1]
-    ///
-    /// Reward:
-    ///   매 스텝: 시간 패널티 + 충돌 패널티 + 경계 이탈 패널티 + 안정 보상
-    ///   에피소드 종료: 씬 완성 보너스
-    /// </summary>
     public class FurnitureAgent : Agent
     {
         public const int MAX_CATEGORIES = 24;
@@ -35,145 +16,172 @@ namespace SceneSynthesis.Agents
         public const int OBS_SIZE       = 8 + MAX_CATEGORIES + MAX_NEIGHBORS * 7 + 4 + 2; // 73
 
         [Header("Movement")]
-        public float moveSpeed      = 0.1f;
-        public float rotationSpeed  = 15f;  // degrees per action unit
+        public float moveSpeed     = 0.05f;
+        public float rotationSpeed = 5f;   // degrees per action unit per step
 
         [Header("Reward")]
-        public float collisionPenaltyPerObject = -0.3f;
-        public float outOfBoundsPenalty        = -1.0f;
-        public float settleRewardPerStep       = +0.01f;
-        public float timePenaltyPerStep        = -0.005f;
+        public float collisionPenalty   = -0.3f;
+        public float outOfBoundsPenalty = -1.0f;
+        public float settleReward       = +0.01f;
+        public float timePenalty        = -0.005f;
 
         [Header("Settle Detection")]
-        public int settleFrames = 30; // N 프레임 동안 움직임 없으면 settled
+        public int settleFrames = 30;
 
-        // 내부 상태
+        // Data
         FurnitureItemData _itemData;
         RoomBounds _roomBounds;
-        TrainingEnvironment _env;
         IReadOnlyList<FurnitureAgent> _allAgents;
-        BoxCollider _collider;
+        Collider _collider;
 
+        // State
         Vector3 _prevPos;
         int _stillFrames;
         bool _isSettled;
+        bool _isActive;
 
-        public bool IsSettled => _isSettled;
+        public bool IsSettled => _isSettled || !_isActive;
         public FurnitureItemData ItemData => _itemData;
 
-        // ── 초기화 ──────────────────────────────────────────────────────────
+        // ── Lifecycle ──────────────────────────────────────────────────────────
 
-        public void Initialize(FurnitureItemData itemData, RoomBounds roomBounds)
+        void Awake()
         {
-            _itemData   = itemData;
-            _roomBounds = roomBounds;
-            _collider   = GetComponent<BoxCollider>();
-            if (_collider == null) _collider = gameObject.AddComponent<BoxCollider>();
-
-            // layer 설정 (BehaviorParameters는 FurnitureSpawner에서 SetActive 전에 설정)
+            _collider = GetComponent<Collider>();
             gameObject.layer = LayerMask.NameToLayer("Furniture");
         }
 
-        public void SetEnvironment(TrainingEnvironment env, IReadOnlyList<FurnitureAgent> allAgents)
+        // Called by FurnitureSpawner once after pool init
+        public void SetNeighborList(IReadOnlyList<FurnitureAgent> allAgents)
         {
-            _env       = env;
             _allAgents = allAgents;
         }
 
-        // ── ML-Agents 오버라이드 ─────────────────────────────────────────────
+        // Called by TrainingEnvironment before each EndEpisode()
+        public void Reassign(FurnitureItemData newData, RoomBounds newBounds)
+        {
+            _itemData  = newData;
+            _roomBounds = newBounds;
+            _isActive  = newData != null;
+
+            if (_isActive)
+            {
+                transform.localScale = newData.FullSize;
+                gameObject.layer = LayerMask.NameToLayer("Furniture");
+            }
+        }
+
+        // ── ML-Agents overrides ────────────────────────────────────────────────
 
         public override void OnEpisodeBegin()
         {
-            // _itemData가 없으면 아직 Initialize() 전이므로 스킵
-            if (_itemData == null || _roomBounds == null) return;
+            if (!_isActive || _itemData == null || _roomBounds == null)
+            {
+                transform.localPosition = new Vector3(0f, -100f, 0f);
+                _isSettled = true;
+                return;
+            }
 
-            // 방 안 랜덤 위치로 리셋
-            float randX = Random.Range(_roomBounds.minX + _itemData.sizeX, _roomBounds.maxX - _itemData.sizeX);
-            float randZ = Random.Range(_roomBounds.minZ + _itemData.sizeZ, _roomBounds.maxZ - _itemData.sizeZ);
-            transform.localPosition = new Vector3(randX, _itemData.sizeY, randZ);
-            transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+            var b = _roomBounds;
+            float minX = b.minX + _itemData.sizeX;
+            float maxX = b.maxX - _itemData.sizeX;
+            float minZ = b.minZ + _itemData.sizeZ;
+            float maxZ = b.maxZ - _itemData.sizeZ;
 
+            // Fallback to center if room is too small for this item
+            float rx = (minX < maxX) ? Random.Range(minX, maxX) : (b.minX + b.maxX) * 0.5f;
+            float rz = (minZ < maxZ) ? Random.Range(minZ, maxZ) : (b.minZ + b.maxZ) * 0.5f;
+
+            transform.localPosition = new Vector3(rx, _itemData.sizeY, rz);
+            transform.localRotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
             _stillFrames = 0;
             _isSettled   = false;
-            _prevPos     = transform.position;
+            _prevPos     = transform.localPosition;
         }
 
         public override void CollectObservations(VectorSensor sensor)
         {
-            var b = _roomBounds;
-            float roomW = b.width  > 0 ? b.width  : 1f;
-            float roomD = b.depth  > 0 ? b.depth  : 1f;
+            if (!_isActive || _itemData == null || _roomBounds == null)
+            {
+                for (int i = 0; i < OBS_SIZE; i++) sensor.AddObservation(0f);
+                return;
+            }
 
-            // --- Self (8) ---
-            float normX = (transform.localPosition.x - (b.minX + b.maxX) * 0.5f) / (roomW * 0.5f);
-            float normZ = (transform.localPosition.z - (b.minZ + b.maxZ) * 0.5f) / (roomD * 0.5f);
-            float angle  = transform.eulerAngles.y * Mathf.Deg2Rad;
+            var b = _roomBounds;
+            float roomW = Mathf.Max(b.width,  0.1f);
+            float roomD = Mathf.Max(b.depth,  0.1f);
+
+            // Self (8)
+            var p = transform.localPosition;
+            float cx = (b.minX + b.maxX) * 0.5f;
+            float cz = (b.minZ + b.maxZ) * 0.5f;
+            float normX = (p.x - cx) / (roomW * 0.5f);
+            float normZ = (p.z - cz) / (roomD * 0.5f);
+            float angle = transform.eulerAngles.y * Mathf.Deg2Rad;
             sensor.AddObservation(normX);
             sensor.AddObservation(normZ);
             sensor.AddObservation(Mathf.Sin(angle));
             sensor.AddObservation(Mathf.Cos(angle));
             sensor.AddObservation(_itemData.sizeX / roomW);
             sensor.AddObservation(_itemData.sizeZ / roomD);
-            sensor.AddObservation(0f); // padding
+            sensor.AddObservation(0f);
             sensor.AddObservation(0f);
 
-            // --- Category one-hot (24) ---
+            // Category one-hot (24)
             for (int i = 0; i < MAX_CATEGORIES; i++)
                 sensor.AddObservation(i == _itemData.categoryIndex ? 1f : 0f);
 
-            // --- Nearest N neighbors (5 × 7) ---
+            // Nearest neighbors (5 × 7)
             var neighbors = GetNearestNeighbors(MAX_NEIGHBORS);
             for (int i = 0; i < MAX_NEIGHBORS; i++)
             {
-                if (i < neighbors.Count)
+                if (i < neighbors.Count && neighbors[i]._itemData != null)
                 {
                     var n = neighbors[i];
                     Vector3 rel = transform.InverseTransformPoint(n.transform.position);
-                    float nAngle = n.transform.eulerAngles.y * Mathf.Deg2Rad;
+                    float na = n.transform.eulerAngles.y * Mathf.Deg2Rad;
                     sensor.AddObservation(rel.x / roomW);
                     sensor.AddObservation(rel.z / roomD);
-                    sensor.AddObservation(Mathf.Sin(nAngle));
-                    sensor.AddObservation(Mathf.Cos(nAngle));
+                    sensor.AddObservation(Mathf.Sin(na));
+                    sensor.AddObservation(Mathf.Cos(na));
                     sensor.AddObservation(n._itemData.sizeX / roomW);
                     sensor.AddObservation(n._itemData.sizeZ / roomD);
                     sensor.AddObservation(IsSameCategory(n) ? 1f : 0f);
                 }
                 else
                 {
-                    // 없는 이웃은 zero padding
                     for (int j = 0; j < 7; j++) sensor.AddObservation(0f);
                 }
             }
 
-            // --- Wall distances (4) via Raycast ---
+            // Wall distances (4) via raycast
             float maxRay = Mathf.Max(roomW, roomD);
             sensor.AddObservation(RaycastWall(Vector3.right,   maxRay) / maxRay);
             sensor.AddObservation(RaycastWall(Vector3.left,    maxRay) / maxRay);
             sensor.AddObservation(RaycastWall(Vector3.forward, maxRay) / maxRay);
             sensor.AddObservation(RaycastWall(Vector3.back,    maxRay) / maxRay);
 
-            // --- Room size (2) ---
+            // Room size (2)
             sensor.AddObservation(roomW);
             sensor.AddObservation(roomD);
         }
 
         public override void OnActionReceived(ActionBuffers actionBuffers)
         {
+            if (!_isActive || _itemData == null || _roomBounds == null) return;
+
             var ca = actionBuffers.ContinuousActions;
             float dx = ca[0] * moveSpeed;
             float dz = ca[1] * moveSpeed;
             float dr = ca[2] * rotationSpeed;
 
-            // 이동 적용
             Vector3 newPos = transform.localPosition + new Vector3(dx, 0f, dz);
-            newPos.y = _itemData.sizeY; // 항상 바닥 위
+            newPos.y = _itemData.sizeY;
             transform.localPosition = newPos;
             transform.Rotate(0f, dr, 0f);
 
-            // ─ 보상 계산 ─
-            float reward = timePenaltyPerStep;
+            float reward = timePenalty;
 
-            // 경계 이탈 확인
             bool inBounds = IsInRoomBounds();
             if (!inBounds)
             {
@@ -181,24 +189,19 @@ namespace SceneSynthesis.Agents
                 ClampToBounds();
             }
 
-            // 충돌 확인 (OverlapBox)
             int collisions = CountCollisions();
             if (collisions > 0)
-                reward += collisionPenaltyPerObject * collisions;
+                reward += collisionPenalty * collisions;
 
-            // 충돌 없고 경계 내부면 settle 보상
             if (inBounds && collisions == 0)
-                reward += settleRewardPerStep;
+                reward += settleReward;
 
             AddReward(reward);
-
-            // Settle 감지 (종료 판정은 TrainingEnvironment.Update()에서)
             UpdateSettleState();
         }
 
         public override void Heuristic(in ActionBuffers actionsOut)
         {
-            // 키보드 테스트용
             var ca = actionsOut.ContinuousActions;
             ca[0] = Input.GetAxis("Horizontal");
             ca[1] = Input.GetAxis("Vertical");
@@ -211,23 +214,23 @@ namespace SceneSynthesis.Agents
             EndEpisode();
         }
 
-        // ── 내부 헬퍼 ────────────────────────────────────────────────────────
+        // ── Helpers ───────────────────────────────────────────────────────────
 
         List<FurnitureAgent> GetNearestNeighbors(int count)
         {
-            var result = new List<(float dist, FurnitureAgent agent)>();
+            var ranked = new List<(float dist, FurnitureAgent a)>();
+            if (_allAgents == null) return new List<FurnitureAgent>();
             foreach (var other in _allAgents)
             {
-                if (other == this) continue;
-                float d = Vector3.Distance(transform.position, other.transform.position);
-                result.Add((d, other));
+                if (other == this || !other._isActive) continue;
+                ranked.Add((Vector3.Distance(transform.position, other.transform.position), other));
             }
-            result.Sort((a, b) => a.dist.CompareTo(b.dist));
+            ranked.Sort((a, b) => a.dist.CompareTo(b.dist));
 
-            var agents = new List<FurnitureAgent>();
-            for (int i = 0; i < Mathf.Min(count, result.Count); i++)
-                agents.Add(result[i].agent);
-            return agents;
+            var result = new List<FurnitureAgent>();
+            for (int i = 0; i < Mathf.Min(count, ranked.Count); i++)
+                result.Add(ranked[i].a);
+            return result;
         }
 
         bool IsSameCategory(FurnitureAgent other) =>
@@ -235,10 +238,9 @@ namespace SceneSynthesis.Agents
 
         float RaycastWall(Vector3 dir, float maxDist)
         {
-            int wallMask = LayerMask.GetMask("Wall");
-            if (Physics.Raycast(transform.position, dir, out var hit, maxDist, wallMask))
-                return hit.distance;
-            return maxDist;
+            int mask = LayerMask.GetMask("Wall");
+            return Physics.Raycast(transform.position, dir, out var hit, maxDist, mask)
+                ? hit.distance : maxDist;
         }
 
         bool IsInRoomBounds()
@@ -260,31 +262,25 @@ namespace SceneSynthesis.Agents
 
         int CountCollisions()
         {
-            // OverlapBox로 겹치는 Collider 수 확인 (자기 자신 제외)
-            int count = 0;
             var hits = Physics.OverlapBox(
                 transform.position,
-                _itemData.HalfSize * 0.9f, // 살짝 줄여서 벽 접촉은 무시
+                _itemData.HalfSize * 0.9f,
                 transform.rotation,
                 LayerMask.GetMask("Furniture")
             );
+            int count = 0;
             foreach (var h in hits)
-            {
                 if (h.gameObject != gameObject) count++;
-            }
             return count;
         }
 
         void UpdateSettleState()
         {
-            float moved = Vector3.Distance(transform.position, _prevPos);
-            if (moved < 0.001f)
-                _stillFrames++;
-            else
-                _stillFrames = 0;
-
-            _isSettled = _stillFrames >= settleFrames && IsInRoomBounds() && CountCollisions() == 0;
-            _prevPos   = transform.position;
+            if (!_isActive) return;
+            float moved = Vector3.Distance(transform.localPosition, _prevPos);
+            _stillFrames = moved < 0.001f ? _stillFrames + 1 : 0;
+            _isSettled   = _stillFrames >= settleFrames && IsInRoomBounds() && CountCollisions() == 0;
+            _prevPos     = transform.localPosition;
         }
     }
 }
