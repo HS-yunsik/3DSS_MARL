@@ -40,6 +40,7 @@ namespace SceneSynthesis.Agents
         bool _isSettled;
         bool _isActive;
 
+        public bool IsActive  => _isActive;
         public bool IsSettled => _isSettled || !_isActive;
         public FurnitureItemData ItemData => _itemData;
 

@@ -37,8 +37,8 @@ namespace SceneSynthesis.Environment
 
         public void Clear()
         {
-            if (_wallParent != null) DestroyImmediate(_wallParent);
-            if (_floor != null)     DestroyImmediate(_floor);
+            if (_wallParent != null) { DestroyImmediate(_wallParent); _wallParent = null; }
+            if (_floor != null)     { DestroyImmediate(_floor);      _floor      = null; }
         }
 
         void BuildFloor(RoomBounds b)

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using SceneSynthesis.Data;
@@ -34,15 +35,9 @@ namespace SceneSynthesis.Environment
         void Start()
         {
             SceneDataLoader.LoadCatalog();
-
-            // Create fixed agent pool once
             furnitureSpawner.InitializePool();
-
-            // Wire up neighbor lists (pool never changes, so set once)
             foreach (var agent in furnitureSpawner.PooledAgents)
                 agent.SetNeighborList(furnitureSpawner.PooledAgents);
-
-            // Load first scene and assign data to pool agents
             LoadNextScene();
             _stepCount    = 0;
             _episodeActive = true;
@@ -53,24 +48,34 @@ namespace SceneSynthesis.Environment
             if (!_episodeActive) return;
             _stepCount++;
 
+            // Only check settle when at least one agent is active
+            int activeCount = 0;
             bool allSettled = true;
             foreach (var agent in furnitureSpawner.PooledAgents)
             {
-                if (!agent.IsSettled) { allSettled = false; break; }
+                if (!agent.IsActive) continue;
+                activeCount++;
+                if (!agent.IsSettled) allSettled = false;
             }
 
-            if (allSettled || _stepCount >= maxStepsPerEpisode)
-                EndEpisode(allSettled);
+            bool timedOut = _stepCount >= maxStepsPerEpisode;
+            bool success  = activeCount > 0 && allSettled && !timedOut;
+
+            if (timedOut || success)
+                EndEpisode(success);
         }
 
         void LoadNextScene()
         {
-            _currentScene = SceneDataLoader.LoadRandomScene(roomType);
-            if (_currentScene == null)
+            var scene = SceneDataLoader.LoadRandomScene(roomType);
+            if (scene == null)
             {
-                Debug.LogError($"[TrainingEnvironment] No scene loaded for '{roomType}'");
+                Debug.LogWarning($"[TrainingEnvironment] LoadRandomScene null for '{roomType}', reusing last scene.");
+                if (_currentScene != null)
+                    furnitureSpawner.AssignScene(_currentScene, _currentScene.room.bounds);
                 return;
             }
+            _currentScene = scene;
             roomBuilder.Build(_currentScene.room);
             furnitureSpawner.AssignScene(_currentScene, _currentScene.room.bounds);
         }
@@ -78,17 +83,25 @@ namespace SceneSynthesis.Environment
         void EndEpisode(bool success)
         {
             _episodeActive = false;
-            float bonus = success ? sceneCompleteBonus : 0f;
-
-            // Reassign data for next scene BEFORE calling EndEpisode on agents.
-            // ML-Agents calls OnEpisodeBegin() next FixedUpdate using the updated _itemData.
-            LoadNextScene();
-
-            foreach (var agent in furnitureSpawner.PooledAgents)
-                agent.EndEpisodeWithBonus(bonus);
-
-            _stepCount    = 0;
-            _episodeActive = true;
+            try
+            {
+                float bonus = success ? sceneCompleteBonus : 0f;
+                LoadNextScene();
+                foreach (var agent in furnitureSpawner.PooledAgents)
+                    agent.EndEpisodeWithBonus(bonus);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[TrainingEnvironment] EndEpisode error: {e}");
+                foreach (var agent in furnitureSpawner.PooledAgents)
+                    try { agent.EndEpisodeWithBonus(0f); } catch { }
+            }
+            finally
+            {
+                // Must always reset — if this stays false, episodes stop permanently
+                _stepCount    = 0;
+                _episodeActive = true;
+            }
         }
 
         public IReadOnlyList<FurnitureAgent> GetAllAgents() => furnitureSpawner.PooledAgents;
