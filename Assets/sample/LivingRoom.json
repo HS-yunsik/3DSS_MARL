@@ -1,0 +1,143 @@
+{
+    "layoutName": "LivingRoom",
+    "parentPriors": [
+        {
+            "category": "Table",
+            "distanceToWall": 1.3730618953704835,
+            "wallNormalDot": 1.0000001192092896,
+            "pairIndex": 0
+        },
+        {
+            "category": "Sofa",
+            "distanceToWall": 0.1,
+            "wallNormalDot": 1.0000004768371583,
+            "pairIndex": 1
+        },
+        {
+            "category": "SofaChair",
+            "distanceToWall": 0.2,
+            "wallNormalDot": 1.0000004768371583,
+            "pairIndex": 2
+        },
+        {
+            "category": "Cabinet",
+            "distanceToWall": 0.1,
+            "wallNormalDot": 1.0000001192092896,
+            "pairIndex": 3
+        },
+        {
+            "category": "Cabinet",
+            "distanceToWall": 0.1,
+            "wallNormalDot": 1.0000004768371583,
+            "pairIndex": 4
+        },
+        {
+            "category": "Cabinet",
+            "distanceToWall": 0.1,
+            "wallNormalDot": 1.0000001192092896,
+            "pairIndex": 5
+        },
+        {
+            "category": "Cabinet",
+            "distanceToWall": 0.1,
+            "wallNormalDot": 1.0000001192092896,
+            "pairIndex": 6
+        },
+        {
+            "category": "Others",
+            "distanceToWall": 0.1,
+            "wallNormalDot": 1.0,
+            "pairIndex": 7
+        },
+        {
+            "category": "Others",
+            "distanceToWall": 0.1,
+            "wallNormalDot": 1.0,
+            "pairIndex": 8
+        },
+        {
+            "category": "Others",
+            "distanceToWall": 0.1,
+            "wallNormalDot": 1.0000001192092896,
+            "pairIndex": 9
+        },
+        {
+            "category": "Others",
+            "distanceToWall": 0.1,
+            "wallNormalDot": 1.0000004768371583,
+            "pairIndex": 10
+        }
+    ],
+    "childPriors": [
+        {
+            "childCategory": "Table",
+            "parentCategory": "Sofa",
+            "pairIndex": 1,
+            "priorDistanceToParent": 0.9507893323898315,
+            "priorThetaDot": -1.0000004768371583,
+            "priorPiDot": 1.0,
+            "priorLocalDir": {
+                "x": 2.408269210718572e-7,
+                "y": 0.0,
+                "z": 1.0
+            },
+            "parentUniqueTag": ""
+        },
+        {
+            "childCategory": "Chair",
+            "parentCategory": "Table",
+            "pairIndex": 0,
+            "priorDistanceToParent": 0.149061918258667,
+            "priorThetaDot": -1.000000238418579,
+            "priorPiDot": 0.8276702761650086,
+            "priorLocalDir": {
+                "x": -0.5612152218818665,
+                "y": 0.0,
+                "z": 0.8276699185371399
+            },
+            "parentUniqueTag": ""
+        },
+        {
+            "childCategory": "Chair",
+            "parentCategory": "Table",
+            "pairIndex": 0,
+            "priorDistanceToParent": 0.14906179904937745,
+            "priorThetaDot": -1.000000238418579,
+            "priorPiDot": 0.7689641118049622,
+            "priorLocalDir": {
+                "x": 0.6392920017242432,
+                "y": 0.0,
+                "z": 0.7689640522003174
+            },
+            "parentUniqueTag": ""
+        },
+        {
+            "childCategory": "Chair",
+            "parentCategory": "Table",
+            "pairIndex": 0,
+            "priorDistanceToParent": 0.14306163787841798,
+            "priorThetaDot": 1.000000238418579,
+            "priorPiDot": 0.7893018126487732,
+            "priorLocalDir": {
+                "x": 0.6140052080154419,
+                "y": 0.0,
+                "z": -0.7893019318580627
+            },
+            "parentUniqueTag": ""
+        },
+        {
+            "childCategory": "Chair",
+            "parentCategory": "Table",
+            "pairIndex": 0,
+            "priorDistanceToParent": 0.14306163787841798,
+            "priorThetaDot": 1.000000238418579,
+            "priorPiDot": 0.8121010065078735,
+            "priorLocalDir": {
+                "x": -0.5835169553756714,
+                "y": 0.0,
+                "z": -0.8121010065078735
+            },
+            "parentUniqueTag": ""
+        }
+    ]
+}
