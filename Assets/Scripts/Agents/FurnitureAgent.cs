@@ -26,6 +26,7 @@ namespace SceneSynthesis.Agents
         public float timePenalty        = -0.005f;
 
         [Header("Settle Detection")]
+        [Tooltip("Consecutive frames in-bounds with no overlap required to count as settled")]
         public int settleFrames = 30;
 
         // Data
@@ -34,9 +35,8 @@ namespace SceneSynthesis.Agents
         IReadOnlyList<FurnitureAgent> _allAgents;
         Collider _collider;
 
-        // State
-        Vector3 _prevPos;
-        int _stillFrames;
+        // Settled = valid placement for N frames (no "stop moving" requirement)
+        int _validFrames;
         bool _isSettled;
         bool _isActive;
 
@@ -60,14 +60,21 @@ namespace SceneSynthesis.Agents
         // Called by TrainingEnvironment before each EndEpisode()
         public void Reassign(FurnitureItemData newData, RoomBounds newBounds)
         {
-            _itemData  = newData;
+            _itemData   = newData;
             _roomBounds = newBounds;
-            _isActive  = newData != null;
+            _isActive   = newData != null;
 
             if (_isActive)
             {
                 transform.localScale = newData.FullSize;
-                gameObject.layer = LayerMask.NameToLayer("Furniture");
+                gameObject.layer     = LayerMask.NameToLayer("Furniture");
+                ResetPosition(); // reposition immediately so agent is visible in new room
+            }
+            else
+            {
+                transform.localPosition = new Vector3(0f, -100f, 0f);
+                _validFrames = 0;
+                _isSettled   = true;
             }
         }
 
@@ -81,22 +88,24 @@ namespace SceneSynthesis.Agents
                 _isSettled = true;
                 return;
             }
+            ResetPosition();
+        }
 
-            var b = _roomBounds;
+        void ResetPosition()
+        {
+            var b    = _roomBounds;
             float minX = b.minX + _itemData.sizeX;
             float maxX = b.maxX - _itemData.sizeX;
             float minZ = b.minZ + _itemData.sizeZ;
             float maxZ = b.maxZ - _itemData.sizeZ;
 
-            // Fallback to center if room is too small for this item
             float rx = (minX < maxX) ? Random.Range(minX, maxX) : (b.minX + b.maxX) * 0.5f;
             float rz = (minZ < maxZ) ? Random.Range(minZ, maxZ) : (b.minZ + b.maxZ) * 0.5f;
 
             transform.localPosition = new Vector3(rx, _itemData.sizeY, rz);
             transform.localRotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
-            _stillFrames = 0;
+            _validFrames = 0;
             _isSettled   = false;
-            _prevPos     = transform.localPosition;
         }
 
         public override void CollectObservations(VectorSensor sensor)
@@ -277,10 +286,10 @@ namespace SceneSynthesis.Agents
         void UpdateSettleState()
         {
             if (!_isActive) return;
-            float moved = Vector3.Distance(transform.localPosition, _prevPos);
-            _stillFrames = moved < 0.001f ? _stillFrames + 1 : 0;
-            _isSettled   = _stillFrames >= settleFrames && IsInRoomBounds() && CountCollisions() == 0;
-            _prevPos     = transform.localPosition;
+            // Settled = valid position for N consecutive frames (no stop requirement)
+            bool valid = IsInRoomBounds() && CountCollisions() == 0;
+            _validFrames = valid ? _validFrames + 1 : 0;
+            _isSettled   = _validFrames >= settleFrames;
         }
     }
 }

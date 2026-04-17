@@ -29,20 +29,24 @@ namespace SceneSynthesis.Environment
         // Called each episode with new scene data (before EndEpisode on agents)
         public void AssignScene(SceneData sceneData, RoomBounds roomBounds)
         {
-            int count = sceneData.objects != null ? sceneData.objects.Length : 0;
-            for (int i = 0; i < _pool.Count; i++)
+            int poolIdx = 0;
+            if (sceneData.objects != null)
             {
-                if (i < count)
+                foreach (var item in sceneData.objects)
                 {
-                    var item = sceneData.objects[i];
-                    _pool[i].Reassign(item, roomBounds);
-                    ApplyMaterial(_pool[i].gameObject, item.categoryIndex);
-                }
-                else
-                {
-                    _pool[i].Reassign(null, null);
+                    if (poolIdx >= _pool.Count) break;
+                    // Skip items whose footprint exceeds 95% of the room in either dimension
+                    if (item.sizeX * 2f > roomBounds.width  * 0.95f ||
+                        item.sizeZ * 2f > roomBounds.depth  * 0.95f)
+                        continue;
+                    _pool[poolIdx].Reassign(item, roomBounds);
+                    ApplyMaterial(_pool[poolIdx].gameObject, item.categoryIndex);
+                    poolIdx++;
                 }
             }
+            // Deactivate remaining pool agents
+            for (int i = poolIdx; i < _pool.Count; i++)
+                _pool[i].Reassign(null, null);
         }
 
         FurnitureAgent CreatePoolAgent(int index)

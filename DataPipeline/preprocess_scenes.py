@@ -59,6 +59,9 @@ def process_scene(npz_path: str, scene_id: str, room_type: str, stats: dict) -> 
     vertices  = get_unique_floor_vertices(data["floor_plan_vertices"], centroid)
     bounds    = compute_room_bounds(vertices)
 
+    room_w = bounds["width"]
+    room_d = bounds["depth"]
+
     objects = []
     n_objs = data["translations"].shape[0]
     for i in range(n_objs):
@@ -66,13 +69,18 @@ def process_scene(npz_path: str, scene_id: str, room_type: str, stats: dict) -> 
         cat_idx   = int(np.argmax(cat_vec))
         cat_name  = class_labels_list[cat_idx] if cat_idx < len(class_labels_list) else "unknown"
 
-        # start/end 토큰은 실제 가구가 아니므로 스킵
         if cat_name in ("start", "end"):
             continue
 
         t = data["translations"][i]
         s = data["sizes"][i]
         a = float(data["angles"][i][0])
+
+        # sizes are half-extents; full footprint must fit within 90% of room
+        full_w = float(s[0]) * 2
+        full_d = float(s[2]) * 2
+        if full_w > room_w * 0.9 or full_d > room_d * 0.9:
+            continue
 
         objects.append({
             "uid":           str(data["uids"][i]),
